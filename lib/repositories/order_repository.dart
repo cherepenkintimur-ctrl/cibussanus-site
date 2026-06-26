@@ -13,21 +13,13 @@ class OrderRepository {
     required List<OrderItem> items,
   }) async {
     return DbService.instance.transaction<int>(() async {
-      final inserted = await DbService.instance.query(
-        '''
-        INSERT INTO orders (order_number, order_date, total_amount, payment_method, notes)
-        VALUES (@order_number, COALESCE(@order_date, NOW()), 0, @payment_method, @notes)
-        RETURNING id
-        ''',
-        parameters: {
-          'order_number': orderNumber,
-          'order_date': orderDate,
-          'payment_method': paymentMethod,
-          'notes': notes,
-        },
-      );
-
-      final orderId = (inserted.first['id'] as num).toInt();
+      final orderId = await DbService.instance.insert('orders', {
+        'order_number': orderNumber,
+        'order_date': orderDate?.toIso8601String() ?? DateTime.now().toIso8601String(),
+        'total_amount': 0,
+        'payment_method': paymentMethod,
+        'notes': notes,
+      });
 
       await _insertItems(orderId, items);
       await recalculateTotal(orderId);
@@ -45,27 +37,22 @@ class OrderRepository {
     required List<OrderItem> items,
   }) async {
     return DbService.instance.transaction<int>(() async {
-      await DbService.instance.query(
-        '''
-        UPDATE orders
-        SET order_number = @order_number,
-            order_date = COALESCE(@order_date, order_date),
-            payment_method = @payment_method,
-            notes = @notes
-        WHERE id = @id
-        ''',
-        parameters: {
-          'id': id,
+      await DbService.instance.update(
+        'orders',
+        {
           'order_number': orderNumber,
-          'order_date': orderDate,
+          if (orderDate != null) 'order_date': orderDate.toIso8601String(),
           'payment_method': paymentMethod,
           'notes': notes,
         },
+        where: 'id = ?',
+        whereArgs: [id],
       );
 
-      await DbService.instance.query(
-        'DELETE FROM order_items WHERE order_id = @order_id',
-        parameters: {'order_id': id},
+      await DbService.instance.delete(
+        'order_items',
+        where: 'order_id = ?',
+        whereArgs: [id],
       );
 
       await _insertItems(id, items);
@@ -77,40 +64,28 @@ class OrderRepository {
 
   Future<void> _insertItems(int orderId, List<OrderItem> items) async {
     for (final item in items) {
-      await DbService.instance.query(
-        '''
-        INSERT INTO order_items (order_id, dish_id, quantity, unit_price)
-        VALUES (@order_id, @dish_id, @quantity, @unit_price)
-        ''',
-        parameters: {
-          'order_id': orderId,
-          'dish_id': item.dishId,
-          'quantity': item.quantity,
-          'unit_price': item.unitPrice,
-        },
-      );
+      final lineTotal = item.quantity * item.unitPrice;
+      await DbService.instance.insert('order_items', {
+        'order_id': orderId,
+        'dish_id': item.dishId,
+        'quantity': item.quantity,
+        'unit_price': item.unitPrice,
+        'line_total': lineTotal,
+      });
     }
   }
 
   Future<List<OrderModel>> getAll() async {
     final rows = await DbService.instance.query(
-      '''
-      SELECT id, order_number, order_date, total_amount, payment_method, notes
-      FROM orders
-      ORDER BY order_date DESC, id DESC
-      ''',
+      'SELECT id, order_number, order_date, total_amount, payment_method, notes FROM orders ORDER BY order_date DESC, id DESC',
     );
     return rows.map(OrderModel.fromMap).toList();
   }
 
   Future<OrderModel?> getById(int id) async {
     final row = await DbService.instance.queryOne(
-      '''
-      SELECT id, order_number, order_date, total_amount, payment_method, notes
-      FROM orders
-      WHERE id = @id
-      ''',
-      parameters: {'id': id},
+      'SELECT id, order_number, order_date, total_amount, payment_method, notes FROM orders WHERE id = ?',
+      arguments: [id],
     );
     return row == null ? null : OrderModel.fromMap(row);
   }
@@ -128,10 +103,10 @@ class OrderRepository {
           oi.line_total
       FROM order_items oi
       JOIN dishes d ON d.id = oi.dish_id
-      WHERE oi.order_id = @order_id
+      WHERE oi.order_id = ?
       ORDER BY oi.id
       ''',
-      parameters: {'order_id': orderId},
+      arguments: [orderId],
     );
   }
 
@@ -142,46 +117,42 @@ class OrderRepository {
     String? paymentMethod,
     String? notes,
   }) async {
-    final rows = await DbService.instance.query(
-      '''
-      UPDATE orders
-      SET order_number = @order_number,
-          order_date = COALESCE(@order_date, order_date),
-          payment_method = @payment_method,
-          notes = @notes
-      WHERE id = @id
-      RETURNING id
-      ''',
-      parameters: {
-        'id': id,
+    return DbService.instance.update(
+      'orders',
+      {
         'order_number': orderNumber,
-        'order_date': orderDate,
+        if (orderDate != null) 'order_date': orderDate.toIso8601String(),
         'payment_method': paymentMethod,
         'notes': notes,
       },
+      where: 'id = ?',
+      whereArgs: [id],
     );
-    return rows.length;
   }
 
   Future<int> delete(int id) async {
-    final rows = await DbService.instance.query(
-      'DELETE FROM orders WHERE id = @id RETURNING id',
-      parameters: {'id': id},
+    return DbService.instance.delete(
+      'orders',
+      where: 'id = ?',
+      whereArgs: [id],
     );
-    return rows.length;
   }
 
   Future<double> recalculateTotal(int orderId) async {
-    await DbService.instance.query(
-      'SELECT recalculate_order_total(@order_id)',
-      parameters: {'order_id': orderId},
-    );
-
     final row = await DbService.instance.queryOne(
-      'SELECT total_amount FROM orders WHERE id = @id',
-      parameters: {'id': orderId},
+      'SELECT COALESCE(SUM(line_total), 0) AS total FROM order_items WHERE order_id = ?',
+      arguments: [orderId],
     );
 
-    return row == null ? 0.0 : (row['total_amount'] as num).toDouble();
+    final total = row == null ? 0.0 : (row['total'] as num).toDouble();
+
+    await DbService.instance.update(
+      'orders',
+      {'total_amount': total},
+      where: 'id = ?',
+      whereArgs: [orderId],
+    );
+
+    return total;
   }
 }

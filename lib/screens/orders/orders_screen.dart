@@ -7,6 +7,7 @@ import '../../models/order_dish_selection.dart';
 import '../../models/order_item.dart';
 import '../../repositories/dish_repository.dart';
 import '../../repositories/order_repository.dart';
+import '../../services/excel_export_service.dart';
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({super.key});
@@ -18,9 +19,20 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersScreenState extends State<OrdersScreen> {
   final OrderRepository repository = const OrderRepository();
   final DishRepository dishRepository = const DishRepository();
+  final excelService = const ExcelExportService();
 
   List<OrderModel> orders = [];
   bool loading = true;
+
+  int _sortIndex = 0;
+  bool _sortAsc = false;
+
+  static const _sortOptions = [
+    'По дате',
+    'По сумме',
+    'По номеру',
+    'По оплате',
+  ];
 
   @override
   void initState() {
@@ -39,10 +51,46 @@ class _OrdersScreenState extends State<OrdersScreen> {
     });
 
     orders = await repository.getAll();
+    _applySort();
 
     if (!mounted) return;
     setState(() {
       loading = false;
+    });
+  }
+
+  void _applySort() {
+    orders.sort((a, b) {
+      int cmp;
+      switch (_sortIndex) {
+        case 0:
+          cmp = (a.orderDate ?? DateTime(0)).compareTo(b.orderDate ?? DateTime(0));
+          break;
+        case 1:
+          cmp = a.totalAmount.compareTo(b.totalAmount);
+          break;
+        case 2:
+          cmp = a.orderNumber.compareTo(b.orderNumber);
+          break;
+        case 3:
+          cmp = (a.paymentMethod ?? '').compareTo(b.paymentMethod ?? '');
+          break;
+        default:
+          cmp = (a.orderDate ?? DateTime(0)).compareTo(b.orderDate ?? DateTime(0));
+      }
+      return _sortAsc ? cmp : -cmp;
+    });
+  }
+
+  void _toggleSort(int index) {
+    setState(() {
+      if (_sortIndex == index) {
+        _sortAsc = !_sortAsc;
+      } else {
+        _sortIndex = index;
+        _sortAsc = index == 0 ? false : true;
+      }
+      _applySort();
     });
   }
 
@@ -360,6 +408,29 @@ class _OrdersScreenState extends State<OrdersScreen> {
     );
   }
 
+  Future<void> _exportToExcel() async {
+    try {
+      final detailsCache = <int, List<Map<String, dynamic>>>{};
+      for (final o in orders) {
+        if (o.id != null) {
+          detailsCache[o.id!] = await repository.getDetails(o.id!);
+        }
+      }
+      await excelService.exportOrders(orders, (orderId) {
+        return detailsCache[orderId] ?? [];
+      });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Файл сохранён')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка экспорта: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (loading) {
@@ -367,47 +438,104 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: createOrder,
-        child: const Icon(Icons.add),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'export_orders',
+            onPressed: _exportToExcel,
+            tooltip: 'Экспорт в Excel',
+            child: const Icon(Icons.table_chart),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton(
+            heroTag: 'add_order',
+            onPressed: createOrder,
+            child: const Icon(Icons.add),
+          ),
+        ],
       ),
-      body: RefreshIndicator(
-        onRefresh: loadOrders,
-        child: ListView.builder(
-          itemCount: orders.length,
-          itemBuilder: (_, index) {
-            final order = orders[index];
+      body: Column(
+        children: [
+          SizedBox(
+            height: 56,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              itemCount: _sortOptions.length,
+              itemBuilder: (_, index) {
+                final selected = _sortIndex == index;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(_sortOptions[index]),
+                        if (selected) ...[
+                          const SizedBox(width: 4),
+                          Icon(
+                            _sortAsc ? Icons.arrow_upward : Icons.arrow_downward,
+                            size: 16,
+                          ),
+                        ],
+                      ],
+                    ),
+                    selected: selected,
+                    onSelected: (_) => _toggleSort(index),
+                  ),
+                );
+              },
+            ),
+          ),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: loadOrders,
+              child: ListView.builder(
+                itemCount: orders.length,
+                itemBuilder: (_, index) {
+                  final order = orders[index];
 
-            return Card(
-              child: ListTile(
-                onTap: () => showDetails(order),
-                leading: CircleAvatar(
-                  child: Text(order.id?.toString() ?? ''),
-                ),
-                title: Text(order.orderNumber),
-                subtitle: Text(
-                  '${order.orderDate?.toString() ?? ''}\n${order.paymentMethod ?? ''}',
-                ),
-                isThreeLine: true,
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.edit),
-                      tooltip: 'Редактировать',
-                      onPressed: () => editOrder(order),
+                  return Card(
+                    child: ListTile(
+                      onTap: () => showDetails(order),
+                      leading: CircleAvatar(
+                        child: Text(order.id?.toString() ?? ''),
+                      ),
+                      title: Text(order.orderNumber),
+                      subtitle: Text(
+                        '${order.orderDate?.toString() ?? ''}\n${order.paymentMethod ?? ''}',
+                      ),
+                      isThreeLine: true,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${order.totalAmount.toStringAsFixed(2)} ₽',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.edit),
+                            tooltip: 'Редактировать',
+                            onPressed: () => editOrder(order),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete),
+                            tooltip: 'Удалить',
+                            onPressed: () => deleteOrder(order),
+                          ),
+                        ],
+                      ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.delete),
-                      tooltip: 'Удалить',
-                      onPressed: () => deleteOrder(order),
-                    ),
-                  ],
-                ),
+                  );
+                },
               ),
-            );
-          },
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }

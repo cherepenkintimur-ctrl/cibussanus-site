@@ -5,39 +5,24 @@ class CategoryRepository {
   const CategoryRepository();
 
   Future<int> create(Category category) async {
-    final rows = await DbService.instance.query(
-      '''
-      INSERT INTO categories (name, description)
-      VALUES (@name, @description)
-      RETURNING id
-      ''',
-      parameters: {
-        'name': category.name.trim(),
-        'description': category.description?.trim(),
-      },
-    );
-    return (rows.first['id'] as num).toInt();
+    final id = await DbService.instance.insert('categories', {
+      'name': category.name.trim(),
+      'description': category.description?.trim(),
+    });
+    return id;
   }
 
   Future<List<Category>> getAll() async {
     final rows = await DbService.instance.query(
-      '''
-      SELECT id, name, description, created_at
-      FROM categories
-      ORDER BY name
-      ''',
+      'SELECT id, name, description, created_at FROM categories ORDER BY name',
     );
     return rows.map(Category.fromMap).toList();
   }
 
   Future<Category?> getById(int id) async {
     final row = await DbService.instance.queryOne(
-      '''
-      SELECT id, name, description, created_at
-      FROM categories
-      WHERE id = @id
-      ''',
-      parameters: {'id': id},
+      'SELECT id, name, description, created_at FROM categories WHERE id = ?',
+      arguments: [id],
     );
     return row == null ? null : Category.fromMap(row);
   }
@@ -46,30 +31,23 @@ class CategoryRepository {
     if (category.id == null) {
       throw ArgumentError('Category id is required for update');
     }
-
-    final rows = await DbService.instance.query(
-      '''
-      UPDATE categories
-      SET name = @name,
-          description = @description
-      WHERE id = @id
-      RETURNING id
-      ''',
-      parameters: {
-        'id': category.id,
+    return DbService.instance.update(
+      'categories',
+      {
         'name': category.name.trim(),
         'description': category.description?.trim(),
       },
+      where: 'id = ?',
+      whereArgs: [category.id],
     );
-    return rows.length;
   }
 
   Future<int> delete(int id) async {
-    final rows = await DbService.instance.query(
-      'DELETE FROM categories WHERE id = @id RETURNING id',
-      parameters: {'id': id},
+    return DbService.instance.delete(
+      'categories',
+      where: 'id = ?',
+      whereArgs: [id],
     );
-    return rows.length;
   }
 
   Future<List<Category>> search(String keyword) async {
@@ -77,11 +55,10 @@ class CategoryRepository {
       '''
       SELECT id, name, description, created_at
       FROM categories
-      WHERE name ILIKE @keyword
-         OR COALESCE(description, '') ILIKE @keyword
+      WHERE name LIKE ? OR COALESCE(description, '') LIKE ?
       ORDER BY name
       ''',
-      parameters: {'keyword': '%${keyword.trim()}%'},
+      arguments: ['%${keyword.trim()}%', '%${keyword.trim()}%'],
     );
     return rows.map(Category.fromMap).toList();
   }

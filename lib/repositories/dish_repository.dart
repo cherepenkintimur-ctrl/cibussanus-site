@@ -5,21 +5,14 @@ class DishRepository {
   const DishRepository();
 
   Future<int> create(Dish dish) async {
-    final rows = await DbService.instance.query(
-      '''
-      INSERT INTO dishes (category_id, name, price, description, is_active)
-      VALUES (@category_id, @name, @price, @description, @is_active)
-      RETURNING id
-      ''',
-      parameters: {
-        'category_id': dish.categoryId,
-        'name': dish.name.trim(),
-        'price': dish.price,
-        'description': dish.description?.trim(),
-        'is_active': dish.isActive,
-      },
-    );
-    return (rows.first['id'] as num).toInt();
+    final id = await DbService.instance.insert('dishes', {
+      'category_id': dish.categoryId,
+      'name': dish.name.trim(),
+      'price': dish.price,
+      'description': dish.description?.trim(),
+      'is_active': dish.isActive ? 1 : 0,
+    });
+    return id;
   }
 
   Future<List<Dish>> getAll({bool onlyActive = false}) async {
@@ -27,7 +20,7 @@ class DishRepository {
       '''
       SELECT id, category_id, name, price, description, is_active, created_at
       FROM dishes
-      ${onlyActive ? 'WHERE is_active = TRUE' : ''}
+      ${onlyActive ? 'WHERE is_active = 1' : ''}
       ORDER BY name
       ''',
     );
@@ -39,10 +32,10 @@ class DishRepository {
       '''
       SELECT id, category_id, name, price, description, is_active, created_at
       FROM dishes
-      WHERE category_id = @category_id
+      WHERE category_id = ?
       ORDER BY name
       ''',
-      parameters: {'category_id': categoryId},
+      arguments: [categoryId],
     );
     return rows.map(Dish.fromMap).toList();
   }
@@ -51,10 +44,9 @@ class DishRepository {
     final row = await DbService.instance.queryOne(
       '''
       SELECT id, category_id, name, price, description, is_active, created_at
-      FROM dishes
-      WHERE id = @id
+      FROM dishes WHERE id = ?
       ''',
-      parameters: {'id': id},
+      arguments: [id],
     );
     return row == null ? null : Dish.fromMap(row);
   }
@@ -63,49 +55,35 @@ class DishRepository {
     if (dish.id == null) {
       throw ArgumentError('Dish id is required for update');
     }
-
-    final rows = await DbService.instance.query(
-      '''
-      UPDATE dishes
-      SET category_id = @category_id,
-          name = @name,
-          price = @price,
-          description = @description,
-          is_active = @is_active
-      WHERE id = @id
-      RETURNING id
-      ''',
-      parameters: {
-        'id': dish.id,
+    return DbService.instance.update(
+      'dishes',
+      {
         'category_id': dish.categoryId,
         'name': dish.name.trim(),
         'price': dish.price,
         'description': dish.description?.trim(),
-        'is_active': dish.isActive,
+        'is_active': dish.isActive ? 1 : 0,
       },
+      where: 'id = ?',
+      whereArgs: [dish.id],
     );
-    return rows.length;
   }
 
   Future<int> delete(int id) async {
-    final rows = await DbService.instance.query(
-      'DELETE FROM dishes WHERE id = @id RETURNING id',
-      parameters: {'id': id},
+    return DbService.instance.delete(
+      'dishes',
+      where: 'id = ?',
+      whereArgs: [id],
     );
-    return rows.length;
   }
 
   Future<int> toggleActive(int id, bool active) async {
-    final rows = await DbService.instance.query(
-      '''
-      UPDATE dishes
-      SET is_active = @active
-      WHERE id = @id
-      RETURNING id
-      ''',
-      parameters: {'id': id, 'active': active},
+    return DbService.instance.update(
+      'dishes',
+      {'is_active': active ? 1 : 0},
+      where: 'id = ?',
+      whereArgs: [id],
     );
-    return rows.length;
   }
 
   Future<List<Dish>> search(String keyword) async {
@@ -113,11 +91,10 @@ class DishRepository {
       '''
       SELECT id, category_id, name, price, description, is_active, created_at
       FROM dishes
-      WHERE name ILIKE @keyword
-         OR COALESCE(description, '') ILIKE @keyword
+      WHERE name LIKE ? OR COALESCE(description, '') LIKE ?
       ORDER BY name
       ''',
-      parameters: {'keyword': '%${keyword.trim()}%'},
+      arguments: ['%${keyword.trim()}%', '%${keyword.trim()}%'],
     );
     return rows.map(Dish.fromMap).toList();
   }

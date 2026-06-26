@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/converters.dart';
 import '../../repositories/report_repository.dart';
+import '../../services/excel_export_service.dart';
 
 class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
@@ -12,6 +13,7 @@ class ReportsScreen extends StatefulWidget {
 
 class _ReportsScreenState extends State<ReportsScreen> {
   final ReportRepository repository = const ReportRepository();
+  final excelService = const ExcelExportService();
 
   late DateTime startDate;
   late DateTime endDate;
@@ -130,6 +132,30 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  Future<void> _exportToExcel() async {
+    try {
+      await excelService.exportReport(
+        startDate: startDate,
+        endDate: endDate,
+        revenue: revenue,
+        averageCheck: averageCheck,
+        maximumCheck: maximumCheck,
+        minimumCheck: minimumCheck,
+        hourlyLoad: hourlyLoad,
+        topDishes: topDishes,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Отчёт сохранён в Excel')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Ошибка экспорта: $e')),
+      );
+    }
+  }
+
   Widget statCard(String title, String value, IconData icon) {
     return Card(
       child: ListTile(
@@ -153,10 +179,23 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
 
     return Scaffold(
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: loadReport,
-        icon: const Icon(Icons.analytics),
-        label: const Text('Сформировать отчет'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FloatingActionButton.small(
+            heroTag: 'export_report',
+            onPressed: _exportToExcel,
+            tooltip: 'Экспорт отчёта в Excel',
+            child: const Icon(Icons.table_chart),
+          ),
+          const SizedBox(height: 8),
+          FloatingActionButton.extended(
+            heroTag: 'generate_report',
+            onPressed: loadReport,
+            icon: const Icon(Icons.analytics),
+            label: const Text('Сформировать отчет'),
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(12),

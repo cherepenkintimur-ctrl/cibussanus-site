@@ -5,43 +5,28 @@ class OrderItemRepository {
   const OrderItemRepository();
 
   Future<int> create(OrderItem item) async {
-    final rows = await DbService.instance.query(
-      '''
-      INSERT INTO order_items (order_id, dish_id, quantity, unit_price)
-      VALUES (@order_id, @dish_id, @quantity, @unit_price)
-      RETURNING id
-      ''',
-      parameters: {
-        'order_id': item.orderId,
-        'dish_id': item.dishId,
-        'quantity': item.quantity,
-        'unit_price': item.unitPrice,
-      },
-    );
-    return (rows.first['id'] as num).toInt();
+    final id = await DbService.instance.insert('order_items', {
+      'order_id': item.orderId,
+      'dish_id': item.dishId,
+      'quantity': item.quantity,
+      'unit_price': item.unitPrice,
+      'line_total': item.lineTotal,
+    });
+    return id;
   }
 
   Future<List<OrderItem>> getByOrderId(int orderId) async {
     final rows = await DbService.instance.query(
-      '''
-      SELECT id, order_id, dish_id, quantity, unit_price, line_total
-      FROM order_items
-      WHERE order_id = @order_id
-      ORDER BY id
-      ''',
-      parameters: {'order_id': orderId},
+      'SELECT id, order_id, dish_id, quantity, unit_price, line_total FROM order_items WHERE order_id = ? ORDER BY id',
+      arguments: [orderId],
     );
     return rows.map(OrderItem.fromMap).toList();
   }
 
   Future<OrderItem?> getById(int id) async {
     final row = await DbService.instance.queryOne(
-      '''
-      SELECT id, order_id, dish_id, quantity, unit_price, line_total
-      FROM order_items
-      WHERE id = @id
-      ''',
-      parameters: {'id': id},
+      'SELECT id, order_id, dish_id, quantity, unit_price, line_total FROM order_items WHERE id = ?',
+      arguments: [id],
     );
     return row == null ? null : OrderItem.fromMap(row);
   }
@@ -50,33 +35,24 @@ class OrderItemRepository {
     if (item.id == null) {
       throw ArgumentError('Order item id is required for update');
     }
-
-    final rows = await DbService.instance.query(
-      '''
-      UPDATE order_items
-      SET order_id = @order_id,
-          dish_id = @dish_id,
-          quantity = @quantity,
-          unit_price = @unit_price
-      WHERE id = @id
-      RETURNING id
-      ''',
-      parameters: {
-        'id': item.id,
+    return DbService.instance.update(
+      'order_items',
+      {
         'order_id': item.orderId,
         'dish_id': item.dishId,
         'quantity': item.quantity,
         'unit_price': item.unitPrice,
       },
+      where: 'id = ?',
+      whereArgs: [item.id],
     );
-    return rows.length;
   }
 
   Future<int> delete(int id) async {
-    final rows = await DbService.instance.query(
-      'DELETE FROM order_items WHERE id = @id RETURNING id',
-      parameters: {'id': id},
+    return DbService.instance.delete(
+      'order_items',
+      where: 'id = ?',
+      whereArgs: [id],
     );
-    return rows.length;
   }
 }

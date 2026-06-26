@@ -1,5 +1,4 @@
 import '../database/db_service.dart';
-import '../models/converters.dart';
 
 class ReportRepository {
   const ReportRepository();
@@ -12,16 +11,12 @@ class ReportRepository {
       '''
       SELECT COALESCE(SUM(total_amount), 0) AS revenue
       FROM orders
-      WHERE order_date >= @start_date
-        AND order_date < @end_date
+      WHERE order_date >= ? AND order_date < ?
       ''',
-      parameters: {
-        'start_date': startDate,
-        'end_date': endDate,
-      },
+      arguments: [startDate.toIso8601String(), endDate.toIso8601String()],
     );
 
-    return row == null ? 0.0 : parseDouble(row['revenue']);
+    return row == null ? 0.0 : (row['revenue'] as num).toDouble();
   }
 
   Future<Map<String, double>> checkStatisticsByPeriod({
@@ -35,19 +30,15 @@ class ReportRepository {
           COALESCE(MAX(total_amount), 0) AS maximum_check,
           COALESCE(MIN(total_amount), 0) AS minimum_check
       FROM orders
-      WHERE order_date >= @start_date
-        AND order_date < @end_date
+      WHERE order_date >= ? AND order_date < ?
       ''',
-      parameters: {
-        'start_date': startDate,
-        'end_date': endDate,
-      },
+      arguments: [startDate.toIso8601String(), endDate.toIso8601String()],
     );
 
     return {
-      'average_check': row == null ? 0.0 : parseDouble(row['average_check']),
-      'maximum_check': row == null ? 0.0 : parseDouble(row['maximum_check']),
-      'minimum_check': row == null ? 0.0 : parseDouble(row['minimum_check']),
+      'average_check': row == null ? 0.0 : (row['average_check'] as num).toDouble(),
+      'maximum_check': row == null ? 0.0 : (row['maximum_check'] as num).toDouble(),
+      'minimum_check': row == null ? 0.0 : (row['minimum_check'] as num).toDouble(),
     };
   }
 
@@ -58,19 +49,15 @@ class ReportRepository {
     return DbService.instance.query(
       '''
       SELECT
-          EXTRACT(HOUR FROM order_date)::int AS hour,
+          CAST(strftime('%H', order_date) AS INTEGER) AS hour,
           COUNT(*) AS orders_count,
           COALESCE(SUM(total_amount), 0) AS revenue
       FROM orders
-      WHERE order_date >= @start_date
-        AND order_date < @end_date
-      GROUP BY 1
-      ORDER BY 1
+      WHERE order_date >= ? AND order_date < ?
+      GROUP BY strftime('%H', order_date)
+      ORDER BY hour
       ''',
-      parameters: {
-        'start_date': startDate,
-        'end_date': endDate,
-      },
+      arguments: [startDate.toIso8601String(), endDate.toIso8601String()],
     );
   }
 
@@ -89,17 +76,12 @@ class ReportRepository {
       FROM order_items oi
       JOIN orders o ON o.id = oi.order_id
       JOIN dishes d ON d.id = oi.dish_id
-      WHERE o.order_date >= @start_date
-        AND o.order_date < @end_date
+      WHERE o.order_date >= ? AND o.order_date < ?
       GROUP BY d.id, d.name
       ORDER BY quantity_sold DESC, revenue DESC
-      LIMIT @limit
+      LIMIT ?
       ''',
-      parameters: {
-        'start_date': startDate,
-        'end_date': endDate,
-        'limit': limit,
-      },
+      arguments: [startDate.toIso8601String(), endDate.toIso8601String(), limit],
     );
   }
 }
