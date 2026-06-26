@@ -56,6 +56,8 @@ class InfoScreen extends StatelessWidget {
                   Text('Год разработки: 2026'),
                   SizedBox(height: 6),
                   Text('Проект: программный модуль учета продаж ресторана европейской кухни CibusSanus'),
+                  SizedBox(height: 6),
+                  Text('Почта: cherepenkintimur@gmail.com'),
                 ],
               ),
             ),

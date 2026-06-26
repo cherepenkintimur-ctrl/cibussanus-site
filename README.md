@@ -156,7 +156,7 @@ flutter run
 
 ## Автор
 
-Черепенькин Тимур Антонович
+Черепенькин Тимур Антонович · [cherepenkintimur@gmail.com](mailto:cherepenkintimur@gmail.com)
 
 Программный модуль «Учёт продаж ресторана европейской кухни»
 
